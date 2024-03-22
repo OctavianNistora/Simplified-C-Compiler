@@ -1,7 +1,7 @@
 void main()
 {
-	int		x;
+	int x;
 	put_s("x=");
-	x=get_i();
+	x = get_i();
 	put_i(x);
 }

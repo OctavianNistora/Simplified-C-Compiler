@@ -3,15 +3,9 @@
 #include <string.h>
 #include <stdarg.h>
 #include "lexical_analyzer.h"
+#include "defines.h"
 
 void err(const char *fmt, ...);
-
-#define SAFEALLOC(var, Type)                          \
-    if ((var = (Type *)malloc(sizeof(Type))) == NULL) \
-        err("not enough memory");
-#define SAFESTRALLOC(var, len)                              \
-    if ((var = (char *)malloc(len * sizeof(char))) == NULL) \
-        err("not enough memory");
 
 struct _Token
 {
@@ -28,7 +22,7 @@ struct _Token
 
 int line = 1;
 Token *tokens = NULL, *lastToken = NULL;
-char *pCrtCh;
+char *pCrtCh = NULL, *pStartCh = NULL;
 
 Token *addTk(int code)
 {
@@ -68,6 +62,7 @@ void tkerr(const Token *tk, const char *fmt, ...)
     vfprintf(stderr, fmt, va);
     fputc('\n', stderr);
     va_end(va);
+    freeTokens();
     exit(-1);
 }
 
@@ -75,7 +70,7 @@ char *createString(const char *pStartCh, const char *pCrtCh)
 {
     char *s;
     int n = pCrtCh - pStartCh;
-    SAFESTRALLOC(s, n + 1);
+    SAFESTRALLOC(s, n);
     for (int i = 0; i < n; i++)
     {
         s[i] = pStartCh[i];
@@ -184,13 +179,13 @@ int getNextToken()
                     }
                     else
                     {
-                        tkerr(addTk(END), "invalid character1");
+                        tkerr(addTk(END), "invalid character");
                     }
                 }
             }
             else if (*pCrtCh == 0)
             {
-                tkerr(addTk(END), "invalid character2");
+                tkerr(addTk(END), "invalid character");
             }
             else
             {
@@ -202,7 +197,7 @@ int getNextToken()
                     tk->i = *(pCrtCh - 2);
                     return CT_CHAR;
                 }
-                tkerr(addTk(END), "invalid character3");
+                tkerr(addTk(END), "invalid character");
             }
         case '"':
             pCrtCh++;
@@ -218,7 +213,7 @@ int getNextToken()
                     }
                     else
                     {
-                        tkerr(addTk(END), "invalid character4");
+                        tkerr(addTk(END), "invalid character");
                     }
                 }
                 else
@@ -228,7 +223,7 @@ int getNextToken()
             }
             if (*pCrtCh == 0)
             {
-                tkerr(addTk(END), "invalid character5");
+                tkerr(addTk(END), "invalid character");
             }
             tk = addTk(CT_STRING);
             tk->text = createString(pStartCh, pCrtCh);
@@ -303,18 +298,27 @@ int getNextToken()
                         }
                         if (*pCrtCh == 0)
                         {
-                            tkerr(addTk(END), "invalid character6");
+                            tkerr(addTk(END), "invalid character");
                         }
                         if (*(pCrtCh + 1) == '/')
                         {
                             break;
                         }
                     }
+                    else if (*pCrtCh == '\n')
+                    {
+                        line++;
+                    }
                     pCrtCh++;
                 }
+                pCrtCh += 2;
+                break;
             }
-            addTk(DIV);
-            return DIV;
+            else
+            {
+                addTk(DIV);
+                return DIV;
+            }
         case '.':
             pCrtCh++;
             addTk(DOT);
@@ -327,7 +331,7 @@ int getNextToken()
                 addTk(AND);
                 return AND;
             }
-            tkerr(addTk(END), "invalid character7");
+            tkerr(addTk(END), "invalid character");
         case '|':
             pCrtCh++;
             if (*pCrtCh == '|')
@@ -336,7 +340,7 @@ int getNextToken()
                 addTk(OR);
                 return OR;
             }
-            tkerr(addTk(END), "invalid character8");
+            tkerr(addTk(END), "invalid character");
         case '!':
             pCrtCh++;
             if (*pCrtCh == '=')
@@ -462,7 +466,7 @@ int getNextToken()
                         pCrtCh++;
                         if (!((*pCrtCh >= '0' && *pCrtCh <= '9') || (*pCrtCh >= 'a' && *pCrtCh <= 'f') || (*pCrtCh >= 'A' && *pCrtCh <= 'F')))
                         {
-                            tkerr(addTk(END), "invalid character9");
+                            tkerr(addTk(END), "invalid character");
                         }
                         pCrtCh++;
                         while ((*pCrtCh >= '0' && *pCrtCh <= '9') || (*pCrtCh >= 'a' && *pCrtCh <= 'f') || (*pCrtCh >= 'A' && *pCrtCh <= 'F'))
@@ -489,7 +493,7 @@ int getNextToken()
                         pCrtCh++;
                         if (!(*pCrtCh >= '0' && *pCrtCh <= '9'))
                         {
-                            tkerr(addTk(END), "invalid character10");
+                            tkerr(addTk(END), "invalid character");
                         }
                         pCrtCh++;
                         while (*pCrtCh >= '0' && *pCrtCh <= '9')
@@ -505,7 +509,7 @@ int getNextToken()
                             }
                             if (!(*pCrtCh >= '0' && *pCrtCh <= '9'))
                             {
-                                tkerr(addTk(END), "invalid character11");
+                                tkerr(addTk(END), "invalid character");
                             }
                             pCrtCh++;
                             while (*pCrtCh >= '0' && *pCrtCh <= '9')
@@ -526,7 +530,7 @@ int getNextToken()
                         }
                         if (!(*pCrtCh >= '0' && *pCrtCh <= '9'))
                         {
-                            tkerr(addTk(END), "invalid character12");
+                            tkerr(addTk(END), "invalid character");
                         }
                         pCrtCh++;
                         while (*pCrtCh >= '0' && *pCrtCh <= '9')
@@ -555,7 +559,7 @@ int getNextToken()
                         pCrtCh++;
                         if (!(*pCrtCh >= '0' && *pCrtCh <= '9'))
                         {
-                            tkerr(addTk(END), "invalid character13");
+                            tkerr(addTk(END), "invalid character");
                         }
                         pCrtCh++;
                         while (*pCrtCh >= '0' && *pCrtCh <= '9')
@@ -571,7 +575,7 @@ int getNextToken()
                             }
                             if (!(*pCrtCh >= '0' && *pCrtCh <= '9'))
                             {
-                                tkerr(addTk(END), "invalid character14");
+                                tkerr(addTk(END), "invalid character");
                             }
                             pCrtCh++;
                             while (*pCrtCh >= '0' && *pCrtCh <= '9')
@@ -592,7 +596,7 @@ int getNextToken()
                         }
                         if (!(*pCrtCh >= '0' && *pCrtCh <= '9'))
                         {
-                            tkerr(addTk(END), "invalid character15");
+                            tkerr(addTk(END), "invalid character");
                         }
                         pCrtCh++;
                         while (*pCrtCh >= '0' && *pCrtCh <= '9')
@@ -612,12 +616,12 @@ int getNextToken()
                 }
                 else
                 {
-                    tkerr(addTk(END), "invalid character16");
+                    tkerr(addTk(END), "invalid character");
                 }
             }
             else
             {
-                tkerr(addTk(END), "invalid character17");
+                tkerr(addTk(END), "invalid  character");
             }
         }
     }
@@ -656,9 +660,35 @@ char *getPCrtCh()
 void setPCrtCh(char *new)
 {
     pCrtCh = new;
+    pStartCh = new;
+}
+
+void freePcrtCh()
+{
+    free(pStartCh);
+    pCrtCh = NULL;
 }
 
 Token *getTokens()
 {
     return tokens;
+}
+
+void freeTokens()
+{
+    Token *crtTk, *tk;
+    crtTk = tokens;
+    while (crtTk)
+    {
+        tk = crtTk;
+        crtTk = crtTk->next;
+
+        if (tk->code == ID || tk->code == CT_STRING)
+        {
+            free(tk->text);
+        }
+        free(tk);
+    }
+    tokens = NULL;
+    lastToken = NULL;
 }

@@ -1,27 +1,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "lexical_analyzer.h"
+#include "syntactical_analyzer.h"
 
-int main()
+int main(int argc, char *argv[])
 {
-    FILE *f = fopen("5.c", "r");
-    long length;
-    if (f)
+    if (argc < 2)
     {
-        fseek(f, 0, SEEK_END);
-        length = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        setPCrtCh(malloc(length));
-        if (getPCrtCh())
-        {
-            fread(getPCrtCh(), 1, length, f);
-        }
-        fclose(f);
+        printf("Usage: %s <filename>\n", argv[0]);
+        return 1;
     }
+
+    FILE *f = fopen(argv[1], "r");
+    if (!f)
+    {
+        perror(argv[1]);
+        return 2;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long length = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    setPCrtCh(malloc(length));
+    if (getPCrtCh())
+    {
+        fread(getPCrtCh(), 1, length, f);
+    }
+    fclose(f);
+
     while (getNextToken() != END)
         ;
-    Token *current = getTokens();
-    while (current != NULL)
+    freePcrtCh();
+
+    Token *token = getTokens();
+
+    for (Token *current = token; current != NULL; current = getTokenNext(current))
     {
         printf("%d", getTokenCode(current));
         if (getTokenCode(current) == ID)
@@ -45,8 +58,9 @@ int main()
             printf(":%s", getTokenText(current));
         }
         printf(" ");
-        current = getTokenNext(current);
     }
     printf("\n");
+    checkSyntax(token);
+    freeTokens();
     return 0;
 }
