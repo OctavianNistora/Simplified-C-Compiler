@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "lexical_analyzer.h"
+#include "semantic_analyzer_fragment.h"
 #include "syntactical_analyzer.h"
 
 int main(int argc, char *argv[])
@@ -34,7 +35,7 @@ int main(int argc, char *argv[])
 
     Token *token = getTokens();
 
-    for (Token *current = token; current != NULL; current = getTokenNext(current))
+    /*for (Token *current = token; current != NULL; current = getTokenNext(current))
     {
         printf("%d", getTokenCode(current));
         if (getTokenCode(current) == ID)
@@ -59,8 +60,11 @@ int main(int argc, char *argv[])
         }
         printf(" ");
     }
-    printf("\n");
+    printf("\n");*/
+    initSymbols(getSymbolsTable());
     checkSyntax(token);
+
+    emptySymbols(getSymbolsTable());
     freeTokens();
     return 0;
 }

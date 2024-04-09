@@ -3,6 +3,8 @@
     "stdarg.h": "c",
     "lexical_analyzer.h": "c",
     "stdio.h": "c",
-    "string.h": "c"
+    "string.h": "c",
+    "syntactical_analyzer.h": "c",
+    "semantic_analyzer_fragment.h": "c"
   }
 }

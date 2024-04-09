@@ -1,9 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "defines.h"
 #include "lexical_analyzer.h"
+#include "syntactical_analyzer.h"
+#include "semantic_analyzer_fragment.h"
 
 Token *crtTk;
 Token *consumedTk;
+
+Token *getCrtTk()
+{
+    return crtTk;
+}
 
 int consume(int code)
 {
@@ -42,11 +50,19 @@ int declStruct()
     {
         tkerr(crtTk, "Missing identifier after struct");
     }
+
+    char *tkName = consumedTk->text;
+
     if (!consume(LACC))
     {
         crtTk = startTk;
         return 0;
     }
+    if (findSymbol(getSymbolsTable(), tkName))
+        tkerr(crtTk, "symbol redefinition: %s", tkName);
+    setCrtStruct(addSymbol(getSymbolsTable(), tkName, CLS_STRUCT));
+    initSymbols(&getCrtStruct()->members);
+
     while (declVar())
         ;
     if (!consume(RACC))
@@ -57,6 +73,9 @@ int declStruct()
     {
         tkerr(crtTk, "Missing ; after struct");
     }
+
+    resetCrtStruct();
+
     return 1;
 }
 
@@ -66,20 +85,35 @@ int arrayDecl();
 int declVar()
 {
     Token *startTk = crtTk;
-    if (!typeBase())
+    Symbol *afterSymbol = getLastSymbol(getSymbolsTable());
+    Type *t;
+    SAFEALLOC(t, Type);
+    if (!typeBase(t))
     {
+        free(t);
         return 0;
     }
     if (!consume(ID))
     {
+        free(t);
         crtTk = startTk;
         return 0;
     }
+
+    Token *tkName = consumedTk;
+
     int isDeclVar = 0;
-    if (arrayDecl())
+    if (arrayDecl(t))
     {
         isDeclVar = 1;
     }
+
+    else
+    {
+        t->nElements = -1;
+    }
+    addVar(tkName, t);
+
     while (consume(COMMA))
     {
         isDeclVar = 1;
@@ -87,7 +121,15 @@ int declVar()
         {
             tkerr(crtTk, "Missing identifier after ,");
         }
-        arrayDecl();
+
+        tkName = consumedTk;
+
+        if (!arrayDecl(t))
+        {
+            t->nElements = -1;
+        }
+
+        addVar(tkName, t);
     }
     if (!consume(SEMICOLON))
     {
@@ -97,17 +139,31 @@ int declVar()
         }
         else
         {
+            free(t);
+            deleteSymbolsAfter(getSymbolsTable(), afterSymbol);
             crtTk = startTk;
             return 0;
         }
     }
+    free(t);
     return 1;
 }
 
-int typeBase()
+int typeBase(Type *ret)
 {
-    if (consume(INT) || consume(DOUBLE) || consume(CHAR))
+    if (consume(INT))
     {
+        ret->typeBase = TB_INT;
+        return 1;
+    }
+    if (consume(DOUBLE))
+    {
+        ret->typeBase = TB_DOUBLE;
+        return 1;
+    }
+    if (consume(CHAR))
+    {
+        ret->typeBase = TB_CHAR;
         return 1;
     }
     if (consume(STRUCT))
@@ -116,6 +172,19 @@ int typeBase()
         {
             tkerr(crtTk, "Missing identifier after struct");
         }
+
+        Symbol *s = findSymbol(getSymbolsTable(), consumedTk->text);
+        if (s == NULL)
+        {
+            tkerr(crtTk, "Undefined symbol: %s", consumedTk->text);
+        }
+        if (s->cls != CLS_STRUCT)
+        {
+            tkerr(crtTk, "%s is not a struct", consumedTk->text);
+        }
+        ret->typeBase = TB_STRUCT;
+        ret->s = s;
+
         return 1;
     }
     return 0;
@@ -123,13 +192,16 @@ int typeBase()
 
 int expr();
 
-int arrayDecl()
+int arrayDecl(Type *ret)
 {
     if (!consume(LBRACKET))
     {
         return 0;
     }
     expr();
+
+    ret->nElements = 0;
+
     if (!consume(RBRACKET))
     {
         tkerr(crtTk, "Missing ]");
@@ -137,13 +209,18 @@ int arrayDecl()
     return 1;
 }
 
-int typeName()
+int typeName(Type *ret)
 {
-    if (!typeBase())
+    if (!typeBase(ret))
     {
         return 0;
     }
-    arrayDecl();
+
+    if (!arrayDecl(ret))
+    {
+        ret->nElements = -1;
+    }
+
     return 1;
 }
 
@@ -152,22 +229,48 @@ int stmCompound();
 
 int declFunc()
 {
-    if (typeBase())
+    Type *t;
+    SAFEALLOC(t, Type);
+    if (typeBase(t))
     {
-        consume(MUL);
+        if (consume(MUL))
+        {
+            t->nElements = 0;
+        }
+        else
+        {
+            t->nElements = -1;
+        }
     }
-    else if (!consume(VOID))
+    else if (consume(VOID))
     {
+        t->typeBase = TB_VOID;
+    }
+    else
+    {
+        free(t);
         return 0;
     }
+
     if (!consume(ID))
     {
         tkerr(crtTk, "Missing identifier after function type");
     }
+
+    char *tkName = consumedTk->text;
+
     if (!consume(LPAR))
     {
         tkerr(crtTk, "Missing ( after function name");
     }
+
+    if (findSymbol(getSymbolsTable(), tkName))
+        tkerr(crtTk, "symbol redefinition: %s", tkName);
+    setCrtFunc(addSymbol(getSymbolsTable(), tkName, CLS_FUNC));
+    initSymbols(&getCrtFunc()->args);
+    getCrtFunc()->type = *t;
+    setCrtDepth(getCrtDepth() + 1);
+
     if (funcArg())
     {
         while (consume(COMMA))
@@ -182,28 +285,52 @@ int declFunc()
     {
         tkerr(crtTk, "Missing )");
     }
+
+    setCrtDepth(getCrtDepth() - 1);
+
     if (!stmCompound())
     {
         tkerr(crtTk, "Missing compound statement");
     }
+
+    deleteSymbolsAfter(getSymbolsTable(), getCrtFunc());
+    setCrtFunc(NULL);
+
+    free(t);
     return 1;
 }
 
 int funcArg()
 {
-    if (!typeBase())
+    Type *t;
+    SAFEALLOC(t, Type);
+    if (!typeBase(t))
     {
+        free(t);
         return 0;
     }
     if (!consume(ID))
     {
         tkerr(crtTk, "Missing identifier after function argument type");
     }
-    arrayDecl();
+
+    char *tkName = consumedTk->text;
+
+    if (!arrayDecl(t))
+    {
+        t->nElements = -1;
+    }
+    Symbol *s = addSymbol(getSymbolsTable(), tkName, CLS_VAR);
+    s->mem = MEM_ARG;
+    s->type = *t;
+    s = addSymbol(&getCrtFunc()->args, tkName, CLS_VAR);
+    s->mem = MEM_ARG;
+    s->type = *t;
+
+    free(t);
     return 1;
 }
 
-int stmCompound();
 int expr();
 
 int stm()
@@ -313,26 +440,31 @@ int stm()
     }
     else
     {
-        if (!consume(SEMICOLON))
+        if (consume(SEMICOLON))
         {
-            return 0;
+            return 1;
         }
-        return 1;
+        return 0;
     }
 }
 
 int stmCompound()
 {
+    Symbol *afterSymbol = getLastSymbol(getSymbolsTable());
     if (!consume(LACC))
     {
         return 0;
     }
+    setCrtDepth(getCrtDepth() + 1);
     while (declVar() || stm())
         ;
     if (!consume(RACC))
     {
         tkerr(crtTk, "Missing }");
     }
+
+    setCrtDepth(getCrtDepth() - 1);
+    deleteSymbolsAfter(getSymbolsTable(), afterSymbol);
     return 1;
 }
 
@@ -435,7 +567,9 @@ int exprCast()
     }
     if (consume(LPAR))
     {
-        if (!typeName())
+        Type *t;
+        SAFEALLOC(t, Type);
+        if (!typeName(t))
         {
             tkerr(crtTk, "Missing type name after (");
         }

@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+Token *getCrtTk();
+
 void checkSyntax(Token *tokens);
 
 #endif

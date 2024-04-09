@@ -2,23 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include "lexical_analyzer.h"
+#include "types.h"
 #include "defines.h"
-
-void err(const char *fmt, ...);
-
-struct _Token
-{
-    int code;
-    union
-    {
-        char *text;
-        long int i;
-        double r;
-    };
-    int line;
-    struct _Token *next;
-};
+#include "lexical_analyzer.h"
 
 int line = 1;
 Token *tokens = NULL, *lastToken = NULL;
@@ -51,6 +37,7 @@ void err(const char *fmt, ...)
     vfprintf(stderr, fmt, va);
     fputc('\n', stderr);
     va_end(va);
+    freeTokens();
     exit(-1);
 }
 
