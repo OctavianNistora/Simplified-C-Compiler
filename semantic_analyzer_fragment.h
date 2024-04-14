@@ -34,4 +34,16 @@ void deleteSymbolsAfter(Symbols *symbols, Symbol *after);
 
 void emptySymbols(Symbols *symbols);
 
+Type createType(int typeBase, int nElements);
+
+void cast(Type *dst, Type *src);
+
+Symbol *addExtFunc(const char *name, Type type);
+
+Symbol *addFuncArg(Symbol *func, const char *name, Type type);
+
+void addExtFuncs();
+
+Type getArithType(Type *s1, Type *s2);
+
 #endif
