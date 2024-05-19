@@ -4,6 +4,7 @@
 #include "lexical_analyzer.h"
 #include "syntactical_analyzer.h"
 #include "semantic_analyzer_fragment.h"
+#include "virtual_machine.h"
 
 Token *crtTk;
 Token *consumedTk;
@@ -30,13 +31,109 @@ int declVar();
 
 int unit()
 {
+    Instr *labelMain = addInstr(O_CALL);
+    addInstr(O_HALT);
+
     while (declStruct() || declVar() || declFunc())
         ;
+
+    labelMain->args[0].addr = requireSymbol(getSymbolsTable(), "main")->addr;
+
     if (!consume(END))
     {
         tkerr(crtTk, "Expected END");
     }
     return 1;
+}
+
+Instr *getRVal(RetVal *rv)
+{
+    if (rv->isLVal)
+    {
+        switch (rv->type.typeBase)
+        {
+        case TB_INT:
+        case TB_DOUBLE:
+        case TB_CHAR:
+        case TB_STRUCT:
+            addInstrI(O_LOAD, typeArgSize(&rv->type));
+            break;
+        default:
+            tkerr(crtTk, "unhandled type: %d", rv->type.typeBase);
+        }
+    }
+    return getLastInstruction();
+}
+
+void addCastInstr(Instr *after, Type *actualType, Type *neededType)
+{
+    if (actualType->nElements >= 0 || neededType->nElements >= 0)
+        return;
+    switch (actualType->typeBase)
+    {
+    case TB_CHAR:
+        switch (neededType->typeBase)
+        {
+        case TB_CHAR:
+            break;
+        case TB_INT:
+            addInstrAfter(after, O_CAST_C_I);
+            break;
+        case TB_DOUBLE:
+            addInstrAfter(after, O_CAST_C_D);
+            break;
+        }
+        break;
+    case TB_INT:
+        switch (neededType->typeBase)
+        {
+        case TB_CHAR:
+            addInstrAfter(after, O_CAST_I_C);
+            break;
+        case TB_INT:
+            break;
+        case TB_DOUBLE:
+            addInstrAfter(after, O_CAST_I_D);
+            break;
+        }
+        break;
+    case TB_DOUBLE:
+        switch (neededType->typeBase)
+        {
+        case TB_CHAR:
+            addInstrAfter(after, O_CAST_D_C);
+            break;
+        case TB_INT:
+            addInstrAfter(after, O_CAST_D_I);
+            break;
+        case TB_DOUBLE:
+            break;
+        }
+        break;
+    }
+}
+
+Instr *createCondJmp(RetVal *rv)
+{
+    if (rv->type.nElements >= 0)
+    { // arrays
+        return addInstr(O_JF_A);
+    }
+    else
+    { // non-arrays
+        getRVal(rv);
+        switch (rv->type.typeBase)
+        {
+        case TB_CHAR:
+            return addInstr(O_JF_C);
+        case TB_DOUBLE:
+            return addInstr(O_JF_D);
+        case TB_INT:
+            return addInstr(O_JF_I);
+        default:
+            return NULL;
+        }
+    }
 }
 
 int declStruct()
@@ -58,6 +155,9 @@ int declStruct()
         crtTk = startTk;
         return 0;
     }
+
+    setOffset(0);
+
     if (findSymbol(getSymbolsTable(), tkName))
         tkerr(crtTk, "symbol redefinition: %s", tkName);
     setCrtStruct(addSymbol(getSymbolsTable(), tkName, CLS_STRUCT));
@@ -194,12 +294,16 @@ int expr();
 
 int arrayDecl(Type *ret)
 {
+    Instr *instrBeforeExpr;
+
     if (!consume(LBRACKET))
     {
         return 0;
     }
 
     RetVal rv;
+
+    instrBeforeExpr = getLastInstruction();
 
     if (expr(&rv))
     {
@@ -212,6 +316,7 @@ int arrayDecl(Type *ret)
             tkerr(crtTk, "the array size is not an integer");
         }
         ret->nElements = rv.ctVal.i;
+        deleteInstructionsAfter(instrBeforeExpr);
     }
     else
     {
@@ -245,6 +350,8 @@ int stmCompound();
 
 int declFunc()
 {
+    Symbol **ps;
+
     Type *t;
     SAFEALLOC(t, Type);
     if (typeBase(t))
@@ -272,6 +379,9 @@ int declFunc()
     {
         tkerr(crtTk, "Missing identifier after function type");
     }
+
+    setSizeArgs(0);
+    setOffset(0);
 
     char *tkName = consumedTk->text;
 
@@ -304,9 +414,28 @@ int declFunc()
 
     setCrtDepth(getCrtDepth() - 1);
 
+    getCrtFunc()->addr = addInstr(O_ENTER);
+    setSizeArgs(getOffset());
+    // update args offsets for correct FP indexing
+    for (ps = getSymbolsTable()->begin; ps != getSymbolsTable()->end; ps++)
+    {
+        if ((*ps)->mem == MEM_ARG)
+        {
+            // 2*sizeof(void*) == sizeof(retAddr)+sizeof(FP)
+            (*ps)->offset -= getSizeArgs() + 2 * sizeof(void *);
+        }
+    }
+    setOffset(0);
+
     if (!stmCompound())
     {
         tkerr(crtTk, "Missing compound statement");
+    }
+
+    ((Instr *)getCrtFunc()->addr)->args[0].i = getOffset(); // setup the ENTER argument
+    if (getCrtFunc()->type.typeBase == TB_VOID)
+    {
+        addInstrII(O_RET, getSizeArgs(), 0);
     }
 
     deleteSymbolsAfter(getSymbolsTable(), getCrtFunc());
@@ -339,9 +468,15 @@ int funcArg()
     Symbol *s = addSymbol(getSymbolsTable(), tkName, CLS_VAR);
     s->mem = MEM_ARG;
     s->type = *t;
+
+    s->offset = getOffset();
+
     s = addSymbol(&getCrtFunc()->args, tkName, CLS_VAR);
     s->mem = MEM_ARG;
     s->type = *t;
+
+    s->offset = getOffset();
+    setOffset(getOffset() + typeArgSize(&s->type));
 
     free(t);
     return 1;
@@ -532,26 +667,38 @@ int exprPrimary(RetVal *rv)
         {
             rv->type = createType(TB_INT, -1);
             rv->ctVal.i = consumedTk->i;
+
+            addInstrI(O_PUSHCT_I, consumedTk->i);
         }
         else if (consumedTk->code == CT_REAL)
         {
             rv->type = createType(TB_DOUBLE, -1);
             rv->ctVal.d = consumedTk->r;
+
+            Instr *i = addInstr(O_PUSHCT_D);
+            i->args[0].d = consumedTk->r;
         }
         else if (consumedTk->code == CT_CHAR)
         {
             rv->type = createType(TB_CHAR, -1);
             rv->ctVal.i = consumedTk->i;
+
+            addInstrI(O_PUSHCT_C, consumedTk->i);
         }
         else if (consumedTk->code == CT_STRING)
         {
             rv->type = createType(TB_CHAR, 0);
             rv->ctVal.str = consumedTk->text;
+
+            addInstrA(O_PUSHCT_A, consumedTk->text);
         }
         rv->isCtVal = 1;
         rv->isLVal = 0;
         return 1;
     }
+
+    Instr *i;
+
     if (consume(ID))
     {
         Token *tkName = consumedTk;
@@ -580,6 +727,17 @@ int exprPrimary(RetVal *rv)
                     tkerr(crtTk, "too many arguments in call");
                 }
                 cast(&(*crtDefArg)->type, &arg.type);
+
+                if ((*crtDefArg)->type.nElements < 0)
+                { // only arrays are passed by addr
+                    i = getRVal(&arg);
+                }
+                else
+                {
+                    i = getLastInstruction();
+                }
+                addCastInstr(i, &arg.type, &(*crtDefArg)->type);
+
                 crtDefArg++;
 
                 while (consume(COMMA))
@@ -591,6 +749,17 @@ int exprPrimary(RetVal *rv)
                             tkerr(crtTk, "too many arguments in call");
                         }
                         cast(&(*crtDefArg)->type, &arg.type);
+
+                        if ((*crtDefArg)->type.nElements < 0)
+                        {
+                            i = getRVal(&arg);
+                        }
+                        else
+                        {
+                            i = getLastInstruction();
+                        }
+                        addCastInstr(i, &arg.type, &(*crtDefArg)->type);
+
                         crtDefArg++;
 
                         tkerr(crtTk, "Missing expression after ,");
@@ -607,11 +776,26 @@ int exprPrimary(RetVal *rv)
             }
             rv->type = s->type;
             rv->isCtVal = rv->isLVal = 0; // compromise to preserve sanity
+
+            i = addInstr(s->cls == CLS_FUNC ? O_CALL : O_CALLEXT);
+            i->args[0].addr = s->addr;
         }
 
-        else if (s->cls == CLS_FUNC || s->cls == CLS_EXTFUNC)
+        else
         {
-            tkerr(crtTk, "missing call for function %s", tkName->text);
+            if (s->cls == CLS_FUNC || s->cls == CLS_EXTFUNC)
+            {
+                tkerr(crtTk, "missing call for function %s", tkName->text);
+            }
+
+            if (s->depth)
+            {
+                addInstrI(O_PUSHFPADDR, s->offset);
+            }
+            else
+            {
+                addInstrA(O_PUSHCT_A, s->addr);
+            }
         }
         return 1;
     }

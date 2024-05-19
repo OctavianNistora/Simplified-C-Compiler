@@ -4,11 +4,14 @@
 #include "defines.h"
 #include "syntactical_analyzer.h"
 #include "semantic_analyzer_fragment.h"
+#include "external_functions.h"
+#include "virtual_machine.h"
 
 Symbols symbols;
 int crtDepth = 0;
 Symbol *crtFunc;
 Symbol *crtStruct;
+int sizeArgs, offset;
 
 Symbols *getSymbolsTable()
 {
@@ -33,6 +36,7 @@ Symbol *getCrtFunc()
 void setCrtFunc(Symbol *s)
 {
     crtFunc = s;
+    offset = 0;
 }
 
 void resetCrtFunc()
@@ -48,6 +52,7 @@ Symbol *getCrtStruct()
 void setCrtStruct(Symbol *s)
 {
     crtStruct = s;
+    offset = 0;
 }
 
 void resetCrtStruct()
@@ -108,6 +113,16 @@ void addVar(Token *tkName, Type *t)
         s->mem = MEM_GLOBAL;
     }
     s->type = *t;
+
+    if (crtStruct || crtFunc)
+    {
+        s->offset = offset;
+    }
+    else
+    {
+        s->addr = allocGlobal(typeFullSize(&s->type));
+    }
+    offset += typeFullSize(&s->type);
 }
 
 Symbol *findSymbol(Symbols *symbols, const char *name)
@@ -240,13 +255,15 @@ void cast(Type *dst, Type *src)
     tkerr(getCrtTk(), "incompatible types");
 }
 
-Symbol *addExtFunc(const char *name, Type type)
+Symbol *addExtFunc(const char *name, Type type, void *addr)
 {
     Symbol *s = addSymbol(&symbols, name, CLS_EXTFUNC);
     s->type = type;
+    s->addr = addr;
     initSymbols(&s->args);
     return s;
 }
+
 Symbol *addFuncArg(Symbol *func, const char *name, Type type)
 {
     Symbol *a = addSymbol(&func->args, name, CLS_VAR);
@@ -257,28 +274,28 @@ Symbol *addFuncArg(Symbol *func, const char *name, Type type)
 void addExtFuncs()
 {
     Symbol *s;
-    s = addExtFunc("put_s", createType(TB_VOID, -1));
+    s = addExtFunc("put_s", createType(TB_VOID, -1), put_s);
     addFuncArg(s, "s", createType(TB_CHAR, 0));
 
-    s = addExtFunc("get_s", createType(TB_VOID, -1));
+    s = addExtFunc("get_s", createType(TB_VOID, -1), get_s);
     addFuncArg(s, "s", createType(TB_CHAR, 0));
 
-    s = addExtFunc("put_i", createType(TB_VOID, -1));
+    s = addExtFunc("put_i", createType(TB_VOID, -1), put_i);
     addFuncArg(s, "i", createType(TB_INT, -1));
 
-    s = addExtFunc("get_i", createType(TB_INT, -1));
+    s = addExtFunc("get_i", createType(TB_INT, -1), get_i);
 
-    s = addExtFunc("put_d", createType(TB_VOID, -1));
+    s = addExtFunc("put_d", createType(TB_VOID, -1), put_d);
     addFuncArg(s, "d", createType(TB_DOUBLE, -1));
 
-    s = addExtFunc("get_d", createType(TB_DOUBLE, -1));
+    s = addExtFunc("get_d", createType(TB_DOUBLE, -1), get_d);
 
-    s = addExtFunc("put_c", createType(TB_VOID, -1));
+    s = addExtFunc("put_c", createType(TB_VOID, -1), put_c);
     addFuncArg(s, "c", createType(TB_CHAR, -1));
 
-    s = addExtFunc("get_c", createType(TB_CHAR, -1));
+    s = addExtFunc("get_c", createType(TB_CHAR, -1), get_c);
 
-    s = addExtFunc("seconds", createType(TB_DOUBLE, -1));
+    s = addExtFunc("seconds", createType(TB_DOUBLE, -1), seconds);
 }
 
 Type getArithType(Type *s1, Type *s2)
@@ -292,4 +309,34 @@ Type getArithType(Type *s1, Type *s2)
         return createType(TB_INT, -1);
     }
     return createType(TB_CHAR, -1);
+}
+
+Symbol *requireSymbol(Symbols *symbols, const char *name)
+{
+    Symbol *s = findSymbol(symbols, name);
+    if (!s)
+    {
+        tkerr(getCrtTk(), "undefined symbol: %s", name);
+    }
+    return s;
+}
+
+int getSizeArgs()
+{
+    return sizeArgs;
+}
+
+void setSizeArgs(int size)
+{
+    sizeArgs = size;
+}
+
+int getOffset()
+{
+    return offset;
+}
+
+void setOffset(int off)
+{
+    offset = off;
 }

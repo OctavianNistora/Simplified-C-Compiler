@@ -14,4 +14,7 @@
     if ((var = (Type *)realloc(var, (len) * sizeof(Type))) == NULL) \
         err("not enough memory");
 
+#define STACK_SIZE (32 * 1024)
+#define GLOBAL_SIZE (32 * 1024)
+
 #endif

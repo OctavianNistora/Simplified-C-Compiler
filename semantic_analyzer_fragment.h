@@ -38,12 +38,24 @@ Type createType(int typeBase, int nElements);
 
 void cast(Type *dst, Type *src);
 
-Symbol *addExtFunc(const char *name, Type type);
+Symbol *addExtFunc(const char *name, Type type, void *addr);
 
 Symbol *addFuncArg(Symbol *func, const char *name, Type type);
 
 void addExtFuncs();
 
 Type getArithType(Type *s1, Type *s2);
+
+Symbol *requireSymbol(Symbols *symbols, const char *name);
+
+void addExtFuncs();
+
+int getSizeArgs();
+
+void setSizeArgs(int size);
+
+int getOffset();
+
+void setOffset(int off);
 
 #endif

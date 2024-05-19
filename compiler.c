@@ -3,6 +3,7 @@
 #include "lexical_analyzer.h"
 #include "semantic_analyzer_fragment.h"
 #include "syntactical_analyzer.h"
+#include "virtual_machine.h"
 
 int main(int argc, char *argv[])
 {
@@ -63,6 +64,8 @@ int main(int argc, char *argv[])
     printf("\n");*/
     initSymbols(getSymbolsTable());
     checkSyntax(token);
+
+    execute();
 
     emptySymbols(getSymbolsTable());
     freeTokens();
